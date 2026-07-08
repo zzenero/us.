@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Our Photobooth</title>
+<!-- PeerJS for Real-Time WebRTC Connection -->
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<!-- html2canvas for Saving the Photostrip -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,400;1,600&family=Quicksand:wght@400;500;600;700&display=swap');
+
+  :root {
+    --honeydew: #F6FFEA;
+    --soft-peach: #FFDE96;
+    --coral-glow: #FA855A;
+    --tomato-jam: #C93638;
+    --sky-blue: #62C4DA;
+    --ink: #4A3B33;
+    --radius: 16px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  
+  body {
+    margin: 0;
+    font-family: 'Quicksand', sans-serif;
+    color: var(--ink);
+    background: #fdfbf7;
+    background-image: radial-gradient(rgba(250, 133, 90, 0.1) 1px, transparent 1px);
+    background-size: 20px 20px;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* Soft Background Glows */
+  .bg { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; }
+  .bg span {
+    position: absolute; border-radius: 50%; filter: blur(80px); opacity: .4;
+    animation: drift 20s ease-in-out infinite alternate;
+  }
+  .bg span:nth-child(1) { width: 400px; height: 400px; background: var(--soft-peach); top: -5%; left: -5%; }
+  .bg span:nth-child(2) { width: 350px; height: 350px; background: var(--sky-blue); bottom: -10%; right: -5%; }
+  
+  @keyframes drift {
+    0% { transform: translate(0,0) scale(1); }
+    100% { transform: translate(20px,-20px) scale(1.05); }
+  }
+
+  .wrap {
+    position: relative; z-index: 1;
+    max-width: 1000px; margin: 0 auto; padding: 50px 20px 80px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+
+  .brand { text-align: center; margin-bottom: 40px; }
+  .brand h1 {
+    font-family: 'Fraunces', serif; font-weight: 600; font-style: italic;
+    font-size: 42px; margin: 0 0 4px; color: var(--tomato-jam); letter-spacing: -0.5px;
+  }
+  .brand p { margin: 0; color: #a3897a; font-size: 15px; font-weight: 500; }
+
+  /* Cards & Inputs */
+  .card {
+    background: rgba(255, 255, 255, 0.85); border-radius: var(--radius); padding: 32px;
+    width: 100%; max-width: 480px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+    border: 1px solid rgba(255, 222, 150, 0.6); text-align: center;
+    backdrop-filter: blur(12px);
+  }
+
+  .field { margin-bottom: 20px; text-align: left; }
+  .field label { display: block; font-size: 13px; font-weight: 700; color: var(--tomato-jam); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .field input {
+    width: 100%; padding: 14px 16px; border-radius: 12px; border: 1.5px solid #f1e2c9;
+    background: white; font-family: 'Quicksand', sans-serif; font-size: 15px; color: var(--ink);
+    outline: none; transition: .2s;
+  }
+  .field input:focus { border-color: var(--sky-blue); box-shadow: 0 0 0 3px rgba(98, 196, 218, 0.15); }
+
+  /* Elegant Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: none; cursor: pointer; font-family: 'Quicksand', sans-serif; font-weight: 700;
+    font-size: 15px; padding: 14px 24px; border-radius: 12px; transition: .2s;
+  }
+  .btn:active { transform: translateY(2px); }
+  .btn-primary { background: var(--coral-glow); color: #fff; box-shadow: 0 8px 20px rgba(250, 133, 90, 0.3); width: 100%; font-size: 16px; }
+  .btn-primary:hover { background: #e87248; box-shadow: 0 10px 25px rgba(250, 133, 90, 0.4); }
+  .btn-primary:disabled { opacity: .6; cursor: not-allowed; box-shadow: none; }
+  .btn-sky { background: var(--sky-blue); color: #fff; }
+  .btn-sky:hover { background: #4baecd; }
+  .btn-ghost { background: transparent; color: var(--tomato-jam); border: 1.5px solid #f1cbb9; padding: 10px 18px; font-size: 13px; }
+  .btn-ghost:hover { background: rgba(201, 54, 56, 0.06); }
+
+  .hint { font-size: 13px; color: #a3897a; margin-top: 10px; line-height: 1.5; text-align: left; }
+
+  /* Layout for Live Booth */
+  .booth-container {
+    display: flex; flex-wrap: wrap; gap: 40px; width: 100%; justify-content: center; align-items: flex-start;
+  }
+
+  .left-panel { flex: 1; min-width: 320px; max-width: 500px; display: flex; flex-direction: column; gap: 24px; }
+  .right-panel { flex: 0 0 320px; display: flex; flex-direction: column; align-items: center; }
+
+  /* Connection Pill */
+  .room-code-pill {
+    background: white; font-weight: 700; padding: 12px 20px; border-radius: 999px;
+    font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+    border: 1px solid rgba(98, 196, 218, 0.3); box-shadow: 0 4px 15px rgba(98, 196, 218, 0.1);
+    color: var(--sky-blue); transition: .3s;
+  }
+  .room-code-pill .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: 0 0 auto;
+  }
+  .room-code-pill.state-waiting { color: #c98a2f; border-color: rgba(201, 138, 47, 0.3); }
+  .room-code-pill.state-waiting .dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+  .room-code-pill.state-connected { color: #3fa876; border-color: rgba(63, 168, 118, 0.3); }
+  .room-code-pill.state-error { color: var(--tomato-jam); border-color: rgba(201, 54, 56, 0.3); }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* Selectors (Frames & Filters) */
+  .selector-group { text-align: center; }
+  .selector-label { font-size: 12px; font-weight: 700; color: #a3897a; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+  .options-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  
+  .chip {
+    padding: 8px 16px; border-radius: 20px; border: 1.5px solid #e2d8cd;
+    background: white; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink);
+    transition: .2s;
+  }
+  .chip:hover { border-color: var(--coral-glow); }
+  .chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+  /* Live Merged Camera Box */
+  .video-stage {
+    background: white; border-radius: 16px; padding: 12px; border: 1px solid #f1e2c9; position: relative;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.05);
+  }
+  
+  .live-canvas-container {
+    width: 100%; aspect-ratio: 16/9; border-radius: 10px; overflow: hidden; background: #eee;
+    display: flex; justify-content: center; align-items: center; position: relative;
+  }
+
+  canvas#liveCanvas { width: 100%; height: 100%; object-fit: cover; transition: filter 0.3s; }
+
+  .video-stage-actions {
+    display: flex; justify-content: space-between; align-items: center; padding: 10px 4px 2px;
+  }
+  .icon-btn {
+    background: none; border: none; cursor: pointer; font-size: 18px; color: #a3897a;
+    padding: 6px 10px; border-radius: 8px; transition: .2s;
+  }
+  .icon-btn:hover { background: rgba(0,0,0,0.05); color: var(--ink); }
+  
+  .countdown-overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-family: 'Fraunces', serif; font-size: 90px; color: var(--tomato-jam); background: rgba(255,255,255,0.85);
+    font-weight: 600; display: none; z-index: 10;
+  }
+
+  /* ---------------- PHOTOSTRIP & ELEGANT FRAMES ---------------- */
+  .photostrip-wrapper {
+    padding: 24px 20px 40px 20px; border-radius: 6px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.08); display: flex; flex-direction: column; gap: 16px;
+    width: 100%; transition: 0.4s all ease; position: relative;
+  }
+
+  /* Editable Title Area */
+  .photostrip-header {
+    text-align: center; font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 26px; font-weight: 600; 
+    border: 1px dashed transparent; border-radius: 8px; padding: 4px; outline: none; transition: 0.2s;
+  }
+  .photostrip-header:hover, .photostrip-header:focus {
+    border-color: rgba(0,0,0,0.2); background: rgba(255, 255, 255, 0.2); cursor: text;
+  }
+  
+  .photostrip-date { text-align: center; font-size: 11px; margin-bottom: 5px; font-weight: 600; letter-spacing: 0.5px; opacity: 0.7; text-transform: uppercase; }
+
+  .strip-slots { display: grid; gap: 10px; }
+  .strip-slots.cols-1 { grid-template-columns: 1fr; }
+  .strip-slots.cols-2 { grid-template-columns: 1fr 1fr; }
+
+  .strip-slot {
+    width: 100%; aspect-ratio: 16/9; background: rgba(0,0,0,0.05); border-radius: 4px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; color: rgba(0,0,0,0.3);
+  }
+  .strip-slot img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* ---------------- FLOWER STICKERS ---------------- */
+  .decoration-layer {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5; overflow: visible;
+  }
+  .flower-sticker {
+    position: absolute; width: 40px; height: 40px; pointer-events: auto; cursor: grab;
+    display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none;
+    -webkit-user-select: none;
+  }
+  .flower-sticker.dragging { cursor: grabbing; z-index: 10; }
+  .flower-sticker .flower-emoji {
+    font-size: 34px; line-height: 1;
+    /* Using text-shadow instead of filter:drop-shadow on purpose — applying
+       a CSS filter directly to a color emoji glyph makes it render as a
+       broken black silhouette on many mobile WebKit/Chrome builds. */
+    text-shadow: 0 3px 4px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.18);
+    display: block; pointer-events: none;
+  }
+  .flower-sticker .delete-x {
+    position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--tomato-jam); color: #fff; font-size: 12px; line-height: 1; border: 2px solid white;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    opacity: 0; transform: scale(0.7); transition: opacity .15s, transform .15s; padding: 0;
+  }
+  .flower-sticker.selected .delete-x,
+  .flower-sticker:hover .delete-x { opacity: 1; transform: scale(1); }
+
+  /* 1. Classic Frame */
+  .photostrip-wrapper.frame-classic { background: white; color: var(--ink); border: 1px solid #eaeaea; }
+  
+  /* 2. Midnight Film Frame */
+  .photostrip-wrapper.frame-film { 
+    background: #1a1a1a; color: white;
+    background-image: 
+      linear-gradient(90deg, transparent 4%, #1a1a1a 4%, #1a1a1a 96%, transparent 96%),
+      linear-gradient(rgba(255,255,255,0.8) 2px, transparent 2px);
+    background-size: 100% 24px;
+    border-radius: 0; padding: 24px 28px 40px 28px;
+  }
+  .photostrip-wrapper.frame-film .strip-slot { border-radius: 2px; }
+
+  /* 3. Sweetheart Frame */
+  .photostrip-wrapper.frame-sweet { 
+    background: #fdf5f2; color: var(--tomato-jam); 
+    border: 2px solid #f6dcd4; border-radius: 12px;
+  }
+  .photostrip-wrapper.frame-sweet::before {
+    content: '♡'; position: absolute; top: -14px; left: 50%; transform: translateX(-50%); 
+    font-size: 24px; color: var(--tomato-jam); background: #fdf5f2; padding: 0 10px;
+  }
+
+  /* 4. Daydream Frame */
+  .photostrip-wrapper.frame-daydream { 
+    background: var(--sky-blue); color: white; border-radius: 24px; border: 6px solid white; 
+    box-shadow: 0 15px 30px rgba(98, 196, 218, 0.3);
+  }
+  .photostrip-wrapper.frame-daydream .strip-slot { border-radius: 12px; border: 2px solid rgba(255,255,255,0.5); }
+
+  /* 5. Meadow Frame — soft sage, dashed stitch border, a little sprig up top */
+  .photostrip-wrapper.frame-meadow {
+    background: #EBF3E1; color: #45633D; border: 2px dashed #B9D9A0; border-radius: 14px;
+  }
+  .photostrip-wrapper.frame-meadow::before {
+    content: '🌿'; position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+    font-size: 20px; background: #EBF3E1; padding: 0 10px; line-height: 1;
+  }
+  .photostrip-wrapper.frame-meadow .strip-slot { border-radius: 8px; border: 1px solid #CFE6BC; }
+
+  /* 6. Citrus Pop Frame — warm gradient with a scalloped ticket-stub edge */
+  .photostrip-wrapper.frame-citrus {
+    background: linear-gradient(165deg, #FFE9C2, var(--soft-peach)); color: #7A4A1D;
+    border-radius: 10px 10px 0 0; padding-bottom: 40px;
+  }
+  .photostrip-wrapper.frame-citrus::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 18px;
+    background: radial-gradient(circle at 9px 0, transparent 9px, #FFE9C2 9.5px);
+    background-size: 18px 18px; background-repeat: repeat-x;
+  }
+  .photostrip-wrapper.frame-citrus .strip-slot { border-radius: 8px; }
+
+  /* 7. Scrapbook Frame — cream paper with two crossed washi-tape strips */
+  .photostrip-wrapper.frame-paper {
+    background: #FFF8EC; color: var(--ink); border: 1px solid #EEE1C6; border-radius: 4px;
+  }
+  .photostrip-wrapper.frame-paper::before,
+  .photostrip-wrapper.frame-paper::after {
+    content: ''; position: absolute; width: 58px; height: 22px; opacity: 0.85;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.12); background-repeat: repeat;
+  }
+  .photostrip-wrapper.frame-paper::before {
+    background: repeating-linear-gradient(45deg, #FFC9C9, #FFC9C9 6px, #FFDCDC 6px, #FFDCDC 12px);
+    top: -11px; left: 14px; transform: rotate(-9deg);
+  }
+  .photostrip-wrapper.frame-paper::after {
+    background: repeating-linear-gradient(45deg, #A9D8E8, #A9D8E8 6px, #C4E6EF 6px, #C4E6EF 12px);
+    top: -11px; right: 14px; transform: rotate(7deg);
+  }
+  .photostrip-wrapper.frame-paper .strip-slot { border-radius: 3px; border: 1px solid #EEE1C6; }
+
+  /* ---------------- FILTERS ---------------- */
+  .filter-normal { filter: none; }
+  .filter-bw { filter: grayscale(100%) contrast(110%); }
+  .filter-vintage { filter: sepia(60%) contrast(90%) brightness(105%); }
+  /* Grunge Filter Applied Here */
+  .filter-grunge { filter: contrast(120%) saturate(50%) sepia(40%) brightness(90%); }
+
+  /* ---------------- MOBILE / SMALL SCREEN TWEAKS ---------------- */
+  @media (max-width: 640px) {
+    .wrap { padding: 24px 14px 90px; }
+    .brand { margin-bottom: 26px; }
+    .brand h1 { font-size: 30px; }
+    .brand p { font-size: 13px; padding: 0 10px; }
+
+    .card { padding: 22px 18px; }
+
+    /* Prevent iOS Safari from auto-zooming when an input is focused */
+    .field input, .btn { font-size: 16px; }
+    .field { margin-bottom: 16px; }
+
+    .booth-container { gap: 22px; }
+    .left-panel { min-width: 0; width: 100%; gap: 18px; }
+    .right-panel { flex: 1 1 100%; width: 100%; max-width: 440px; }
+
+    .selector-label { font-size: 11px; margin-bottom: 8px; }
+    .options-row { gap: 6px; }
+    .chip { padding: 9px 14px; font-size: 13px; }
+    .flower-chip { padding: 8px 12px; font-size: 18px; }
+
+    .room-code-pill { font-size: 13px; padding: 10px 16px; }
+
+    .video-stage { padding: 8px; border-radius: 14px; }
+    .video-stage-actions { padding: 10px 2px 2px; }
+    .icon-btn { font-size: 15px; padding: 8px 10px; }
+
+    #btn-snap { font-size: 15px; padding: 15px 20px; }
+
+    .photostrip-header { font-size: 22px; }
+    .strip-slots { gap: 8px; }
+    .countdown-overlay { font-size: 60px; }
+
+    footer.credit { margin-top: 30px; font-size: 11px; }
+
+    .modal-card { padding: 22px; }
+  }
+
+  @media (max-width: 380px) {
+    .chip { padding: 7px 11px; font-size: 12px; }
+    .brand h1 { font-size: 26px; }
+  }
+
+  /* Bigger, thumb-friendly delete button on touch devices */
+  @media (pointer: coarse) {
+    .flower-sticker .delete-x { width: 22px; height: 22px; font-size: 14px; top: -8px; right: -8px; }
+  }
+
+  .hidden { display: none !important; }
+  .status-text { font-size: 13px; color: var(--tomato-jam); font-weight: 600; text-align: center; margin-top: 15px; }
+  footer.credit { margin-top: 50px; font-size: 12px; color: #a3897a; text-align: center; font-weight: 600; }
+
+  /* ---------------- INCOMING CALL MODAL ---------------- */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(74, 59, 51, 0.45); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-card {
+    background: white; border-radius: var(--radius); padding: 28px; max-width: 360px; width: 100%;
+    text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+  }
+  .modal-card h3 { font-family: 'Fraunces', serif; font-style: italic; margin: 8px 0 4px; font-size: 22px; color: var(--tomato-jam); }
+  .modal-card p { margin: 0 0 20px; font-size: 13px; color: #a3897a; word-break: break-all; }
+  .modal-actions { display: flex; gap: 10px; }
+  .modal-actions .btn { flex: 1; }
+</style>
+</head>
+<body>
+
+<div class="bg"><span></span><span></span></div>
+
+<div class="wrap">
+  <div class="brand">
+    <h1>Us.</h1>
+    <p>A little space, just for the two of you.</p>
+  </div>
+
+  <!-- Step 1: Connect -->
+  <div class="card" id="screen-landing">
+    <div class="field">
+      <label>Your Connection ID</label>
+      <div style="display: flex; gap: 8px;">
+        <input id="myId" type="text" readonly placeholder="Generating code...">
+        <button class="btn btn-sky" onclick="copyMyId()" id="copyBtn" disabled>Copy</button>
+      </div>
+      <p class="hint">Send this to your partner so they can join. Sharing the link below also fills their code in for them automatically.</p>
+    </div>
+
+    <div class="field">
+      <label>Shareable Link</label>
+      <div style="display: flex; gap: 8px;">
+        <input id="myLink" type="text" readonly placeholder="Waiting for your code...">
+        <button class="btn btn-sky" onclick="copyMyLink()" id="copyLinkBtn" disabled>Copy</button>
+      </div>
+    </div>
+    
+    <div style="margin: 32px 0; border-top: 1px solid #f1e2c9;"></div>
+
+    <div class="field">
+      <label>Partner's Connection ID</label>
+      <input id="partnerId" type="text" placeholder="Paste their code here">
+    </div>
+    <button class="btn btn-primary" id="btn-connect" onclick="connectToPartner()" disabled>Enter Photobooth</button>
+    <div class="status-text" id="landing-status" style="display:none;"></div>
+  </div>
+
+  <!-- Step 2: Live Booth -->
+  <div class="booth-container hidden" id="screen-room">
+    
+    <div class="left-panel">
+      <div class="room-code-pill state-waiting" id="room-pill">
+        <span class="dot"></span>
+        <span id="room-pill-text">Waiting for partner...</span>
+      </div>
+
+      <!-- Photo Count Selector -->
+      <div class="selector-group">
+        <div class="selector-label">1. How Many Photos</div>
+        <div class="options-row">
+          <button class="chip count-btn" data-count="2">2</button>
+          <button class="chip count-btn" data-count="3">3</button>
+          <button class="chip count-btn active" data-count="4">4</button>
+          <button class="chip count-btn" data-count="6">6</button>
+        </div>
+      </div>
+
+      <!-- Frame Selector -->
+      <div class="selector-group">
+        <div class="selector-label">2. Choose Design</div>
+        <div class="options-row">
+          <button class="chip frame-btn active" data-frame="classic">Classic</button>
+          <button class="chip frame-btn" data-frame="film">Midnight Film</button>
+          <button class="chip frame-btn" data-frame="sweet">Sweetheart</button>
+          <button class="chip frame-btn" data-frame="daydream">Daydream</button>
+          <button class="chip frame-btn" data-frame="meadow">Meadow</button>
+          <button class="chip frame-btn" data-frame="citrus">Citrus Pop</button>
+          <button class="chip frame-btn" data-frame="paper">Scrapbook</button>
+        </div>
+      </div>
+
+      <!-- Camera Filter Selector -->
+      <div class="selector-group">
+        <div class="selector-label">3. Choose Filter</div>
+        <div class="options-row">
+          <button class="chip filter-btn active" data-filter="filter-normal">Normal</button>
+          <button class="chip filter-btn" data-filter="filter-bw">B&W</button>
+          <button class="chip filter-btn" data-filter="filter-vintage">Vintage</button>
+          <button class="chip filter-btn" data-filter="filter-grunge">Grunge</button>
+        </div>
+      </div>
+
+      <!-- Flower Stickers -->
+      <div class="selector-group">
+        <div class="selector-label">4. Add Flowers</div>
+        <div class="options-row">
+          <button class="chip flower-chip" data-flower="🌸" title="Add blossom">🌸</button>
+          <button class="chip flower-chip" data-flower="🌷" title="Add tulip">🌷</button>
+          <button class="chip flower-chip" data-flower="🌻" title="Add sunflower">🌻</button>
+          <button class="chip flower-chip" data-flower="🌹" title="Add rose">🌹</button>
+          <button class="chip flower-chip" data-flower="🌼" title="Add daisy">🌼</button>
+          <button class="chip flower-chip" data-flower="🪷" title="Add lily">🪷</button>
+          <button class="chip flower-chip" data-flower="🥀" title="Add wilted rose">🥀</button>
+        </div>
+        <p class="hint" style="text-align:center;">Tap a flower to drop it on the strip, then drag it wherever you like. Tap the little × to remove one.</p>
+      </div>
+
+      <div class="video-stage">
+        <!-- Live Merged Canvas -->
+        <div class="live-canvas-container" id="live-wrapper">
+          <canvas id="liveCanvas" width="1280" height="720" class="filter-normal"></canvas>
+          <div class="countdown-overlay" id="countdown">3</div>
+        </div>
+        <div class="video-stage-actions">
+          <button class="icon-btn" onclick="flipCamera()" id="flipCamBtn" title="Switch camera">🔄 Flip camera</button>
+          <button class="icon-btn" onclick="leaveRoom()" title="Leave and reset">✖ Leave</button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-snap" onclick="startSnapSequence()">📸 Snap 4 Photos</button>
+    </div>
+
+    <!-- The Photostrip -->
+    <div class="right-panel">
+      <div class="photostrip-wrapper frame-classic" id="photostrip">
+        <!-- EDITABLE TITLE -->
+        <div class="photostrip-header" id="strip-title" contenteditable="true" spellcheck="false" title="Click to edit!">Us ♥</div>
+        <div class="photostrip-date" id="strip-date"></div>
+
+        <div class="strip-slots cols-1" id="strip-slots">
+          <!-- slots are generated by renderStripSlots() based on the chosen photo count -->
+        </div>
+
+        <!-- Draggable flower stickers live here, floating above everything else -->
+        <div class="decoration-layer" id="decoration-layer"></div>
+      </div>
+      <button class="btn btn-sky" style="margin-top: 20px; width: 100%; font-size: 16px;" onclick="downloadStrip()">📥 Download Strip</button>
+    </div>
+
+  </div>
+
+  <footer class="credit">made for long distance nights</footer>
+</div>
+
+<!-- Incoming Call Confirmation Modal -->
+<div class="modal-backdrop hidden" id="incoming-modal">
+  <div class="modal-card">
+    <div style="font-size: 34px;">💌</div>
+    <h3>Someone's calling</h3>
+    <p id="incoming-caller-id">connection id</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="rejectIncomingCall()">Decline</button>
+      <button class="btn btn-primary" onclick="acceptIncomingCall()">Accept</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden videos for processing -->
+<video id="localVideo" autoplay muted playsinline class="hidden"></video>
+<video id="remoteVideo" autoplay playsinline class="hidden"></video>
+
+<script>
+  // --- Set Today's Date ---
+  const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+  document.getElementById('strip-date').innerText = new Date().toLocaleDateString('en-GB', dateOptions);
+
+  // --- App Logic ---
+  const localVideo = document.getElementById('localVideo');
+  const remoteVideo = document.getElementById('remoteVideo');
+  const canvas = document.getElementById('liveCanvas');
+  const ctx = canvas.getContext('2d');
+  
+  let localStream = null;
+  let peer = null;
+  let isSnapping = false;
+  let currentFilterClass = 'filter-normal';
+  let activeCall = null;
+  let pendingIncomingCall = null;
+  let facingMode = 'user';
+  let photosTaken = 0;
+  let hasEnteredRoom = false;
+  let photoCount = 4;
+  let sequenceRunning = false;
+
+  // Public STUN servers to improve NAT traversal (no TURN credentials are
+  // bundled here, so connections behind very strict/symmetric NATs may still
+  // fail — a TURN server would be needed for those cases).
+  const ICE_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:global.stun.twilio.com:3478' }
+    ]
+  };
+
+  function showLandingStatus(msg, isError) {
+    const el = document.getElementById('landing-status');
+    el.style.display = 'block';
+    el.innerText = msg;
+    el.style.color = isError === false ? 'var(--sky-blue)' : 'var(--tomato-jam)';
+  }
+
+  function setRoomPill(state, text) {
+    const pill = document.getElementById('room-pill');
+    pill.className = 'room-code-pill state-' + state;
+    document.getElementById('room-pill-text').innerText = text;
+  }
+
+  async function initCameraAndPeer() {
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
+      localVideo.srcObject = localStream;
+      localVideo.onloadedmetadata = () => { localVideo.play(); requestAnimationFrame(drawMergedCanvas); };
+
+      setupPeer();
+
+    } catch (err) {
+      showLandingStatus("Camera blocked! Please allow camera access, then reload the page.");
+    }
+  }
+
+  // Creates (or re-creates) the Peer object and wires up its event handlers.
+  // Pulled out of initCameraAndPeer so connectToPartner can call it again
+  // if the peer was ever fully destroyed, without duplicating this logic.
+  function setupPeer() {
+    peer = new Peer({ debug: 2, config: ICE_CONFIG });
+
+    peer.on('open', id => {
+      document.getElementById('myId').value = id;
+      document.getElementById('copyBtn').disabled = false;
+      document.getElementById('btn-connect').disabled = false;
+
+      const link = `${location.origin}${location.pathname}#${id}`;
+      const linkInput = document.getElementById('myLink');
+      linkInput.value = link;
+      document.getElementById('copyLinkBtn').disabled = false;
+
+      // Auto-fill partner ID if we arrived via a shared link
+      const hashId = location.hash ? location.hash.slice(1) : '';
+      if (hashId && hashId !== id) {
+        document.getElementById('partnerId').value = hashId;
+      }
+    });
+
+    peer.on('call', call => {
+      // Ask before auto-answering, so strangers who guess/see the ID can't
+      // just connect to the camera without confirmation.
+      pendingIncomingCall = call;
+      document.getElementById('incoming-caller-id').innerText = call.peer;
+      document.getElementById('incoming-modal').classList.remove('hidden');
+    });
+
+    peer.on('disconnected', () => {
+      // The signalling connection can silently drop from an idle timeout
+      // even while the tab looks fine. Try to recover right away instead
+      // of waiting for the user to hit a dead-end "couldn't connect" error.
+      if (hasEnteredRoom) setRoomPill('error', 'Connection lost — trying to reconnect...');
+      else showLandingStatus('Reconnecting to server...', false);
+      if (!peer.destroyed) peer.reconnect();
+    });
+
+    peer.on('close', () => {
+      if (hasEnteredRoom) setRoomPill('error', 'Server connection closed. Leave and reload to reconnect.');
+    });
+
+    peer.on('error', err => {
+      if (!hasEnteredRoom) {
+        showLandingStatus(describePeerError(err));
+        document.getElementById('btn-connect').disabled = false;
+      } else {
+        setRoomPill('error', describePeerError(err));
+      }
+    });
+  }
+
+  function describePeerError(err) {
+    switch (err.type) {
+      case 'peer-unavailable': return "That code doesn't match anyone online right now. Double-check it and try again.";
+      case 'network': return "Network hiccup — check your connection and try again.";
+      case 'disconnected': return "Lost connection to the signalling server, reconnecting...";
+      default: return "Connection error: " + err.type;
+    }
+  }
+
+  async function connectToPartner() {
+    const partnerId = document.getElementById('partnerId').value.trim();
+    if (!partnerId) return showLandingStatus("Please paste their ID first.");
+
+    const btn = document.getElementById('btn-connect');
+    btn.disabled = true;
+
+    if (!localStream || localStream.getVideoTracks().length === 0) {
+      showLandingStatus("Your camera isn't ready yet. Allow camera access and wait a moment, then try again.");
+      btn.disabled = false;
+      return;
+    }
+
+    // peer.call() silently returns undefined instead of throwing when the
+    // peer object isn't in a callable state (destroyed, or dropped its
+    // connection to the signalling server). Detect and repair that first
+    // instead of just showing a dead-end error.
+    if (!peer || peer.destroyed) {
+      showLandingStatus("Reconnecting to the server...", false);
+      try { await reinitPeer(); }
+      catch (e) {
+        showLandingStatus("Couldn't reach the server. Check your connection and try again.");
+        btn.disabled = false;
+        return;
+      }
+    } else if (peer.disconnected) {
+      showLandingStatus("Reconnecting to the server...", false);
+      try { await waitForPeerReconnect(); }
+      catch (e) {
+        showLandingStatus("Couldn't reconnect to the server. Check your connection and try again.");
+        btn.disabled = false;
+        return;
+      }
+    }
+
+    showLandingStatus("Connecting to partner...", false);
+
+    let call;
+    try {
+      call = peer.call(partnerId, localStream);
+    } catch (e) {
+      call = null;
+    }
+
+    if (!call) {
+      showLandingStatus("Couldn't start the call. Please try again in a few seconds.");
+      btn.disabled = false;
+      return;
+    }
+    bindCallEvents(call);
+
+    // Only enter the room once the partner's stream actually arrives.
+    // If nothing happens within 15s, assume the ID was wrong/offline.
+    const timeout = setTimeout(() => {
+      if (!hasEnteredRoom) {
+        showLandingStatus("No response from that code. Check it and try again.");
+        btn.disabled = false;
+        call.close();
+      }
+    }, 15000);
+
+    call.on('stream', () => clearTimeout(timeout));
+  }
+
+  // Waits (up to 8s) for an already-triggered peer.reconnect() to succeed.
+  function waitForPeerReconnect() {
+    return new Promise((resolve, reject) => {
+      if (!peer.disconnected) return resolve();
+      let settled = false;
+      const onOpen = () => { if (!settled) { settled = true; cleanup(); resolve(); } };
+      const onError = () => { if (!settled) { settled = true; cleanup(); reject(new Error('reconnect failed')); } };
+      const cleanup = () => { peer.off('open', onOpen); peer.off('error', onError); };
+      peer.on('open', onOpen);
+      peer.on('error', onError);
+      peer.reconnect();
+      setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('reconnect timeout')); } }, 8000);
+    });
+  }
+
+  // Fully re-creates the Peer object (used when it was destroyed outright).
+  function reinitPeer() {
+    return new Promise((resolve, reject) => {
+      setupPeer();
+      const onOpen = () => { peer.off('error', onError); resolve(); };
+      const onError = (err) => { peer.off('open', onOpen); reject(err); };
+      peer.once('open', onOpen);
+      peer.once('error', onError);
+    });
+  }
+
+  function bindCallEvents(call) {
+    activeCall = call;
+    call.on('stream', remoteStream => {
+      remoteVideo.srcObject = remoteStream;
+      remoteVideo.onloadedmetadata = () => remoteVideo.play();
+      enterRoom();
+      setRoomPill('connected', '✨ Partner connected ✨');
+    });
+    call.on('close', () => {
+      remoteVideo.srcObject = null;
+      if (hasEnteredRoom) setRoomPill('error', 'Partner disconnected.');
+    });
+    call.on('error', () => {
+      if (hasEnteredRoom) setRoomPill('error', 'Call error — try leaving and reconnecting.');
+    });
+  }
+
+  function acceptIncomingCall() {
+    if (!pendingIncomingCall) return;
+    document.getElementById('incoming-modal').classList.add('hidden');
+    pendingIncomingCall.answer(localStream);
+    bindCallEvents(pendingIncomingCall);
+    pendingIncomingCall = null;
+  }
+
+  function rejectIncomingCall() {
+    if (!pendingIncomingCall) return;
+    pendingIncomingCall.close();
+    pendingIncomingCall = null;
+    document.getElementById('incoming-modal').classList.add('hidden');
+  }
+
+  function enterRoom() {
+    if (hasEnteredRoom) return;
+    hasEnteredRoom = true;
+    document.getElementById('screen-landing').classList.add('hidden');
+    document.getElementById('screen-room').classList.remove('hidden');
+    setRoomPill('waiting', 'Waiting for partner...');
+  }
+
+  function leaveRoom() {
+    if (activeCall) { activeCall.close(); activeCall = null; }
+    remoteVideo.srcObject = null;
+    hasEnteredRoom = false;
+    photosTaken = 0;
+    sequenceRunning = false;
+    renderStripSlots();
+    clearFlowers();
+    document.getElementById('btn-snap').disabled = false;
+    updateSnapButtonLabel();
+    document.getElementById('screen-room').classList.add('hidden');
+    document.getElementById('screen-landing').classList.remove('hidden');
+    document.getElementById('btn-connect').disabled = false;
+    showLandingStatus("You left the room. Paste a code to reconnect.", false);
+  }
+
+  async function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    // Fallback for non-secure contexts / older browsers
+    const temp = document.createElement('textarea');
+    temp.value = text;
+    temp.style.position = 'fixed';
+    temp.style.opacity = '0';
+    document.body.appendChild(temp);
+    temp.focus();
+    temp.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(temp);
+    return ok;
+  }
+
+  function copyMyId() {
+    copyToClipboard(document.getElementById('myId').value).then(() => {
+      document.getElementById('copyBtn').innerText = 'Copied!';
+      setTimeout(() => document.getElementById('copyBtn').innerText = 'Copy', 2000);
+    });
+  }
+
+  function copyMyLink() {
+    copyToClipboard(document.getElementById('myLink').value).then(() => {
+      document.getElementById('copyLinkBtn').innerText = 'Copied!';
+      setTimeout(() => document.getElementById('copyLinkBtn').innerText = 'Copy', 2000);
+    });
+  }
+
+  async function flipCamera() {
+    if (!navigator.mediaDevices.getUserMedia) return;
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
+      const oldStream = localStream;
+      localStream = newStream;
+      localVideo.srcObject = newStream;
+
+      // Swap the outgoing track on the live call so the partner sees the new camera too
+      if (activeCall && activeCall.peerConnection) {
+        const sender = activeCall.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+        if (sender) sender.replaceTrack(newStream.getVideoTracks()[0]);
+      }
+      if (oldStream) oldStream.getTracks().forEach(t => t.stop());
+    } catch (err) {
+      facingMode = facingMode === 'user' ? 'environment' : 'user'; // revert
+      showLandingStatus("Couldn't switch camera on this device.");
+    }
+  }
+
+  function drawMergedCanvas() {
+    ctx.fillStyle = '#fafaf8';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (localVideo.readyState >= 2) {
+      drawMirroredCrop(localVideo, 0, 0, canvas.width / 2, canvas.height);
+    }
+
+    if (remoteVideo.readyState >= 2) {
+      drawMirroredCrop(remoteVideo, canvas.width / 2, 0, canvas.width / 2, canvas.height);
+      
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(canvas.width / 2, 0);
+      ctx.lineTo(canvas.width / 2, canvas.height);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#C93638';
+      ctx.font = '600 28px Quicksand';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for partner...', canvas.width * 0.75, canvas.height / 2);
+    }
+
+    if (isSnapping) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    requestAnimationFrame(drawMergedCanvas);
+  }
+
+  function drawMirroredCrop(videoEl, dx, dy, dWidth, dHeight) {
+    if(!videoEl.videoWidth) return;
+    const vRatio = videoEl.videoWidth / videoEl.videoHeight;
+    const tRatio = dWidth / dHeight;
+    let sx, sy, sWidth, sHeight;
+
+    if (vRatio > tRatio) {
+      sHeight = videoEl.videoHeight;
+      sWidth = sHeight * tRatio;
+      sx = (videoEl.videoWidth - sWidth) / 2;
+      sy = 0;
+    } else {
+      sWidth = videoEl.videoWidth;
+      sHeight = sWidth / tRatio;
+      sx = 0;
+      sy = (videoEl.videoHeight - sHeight) / 2;
+    }
+    
+    ctx.save();
+    ctx.translate(dx + dWidth, dy);
+    ctx.scale(-1, 1);
+    ctx.drawImage(videoEl, sx, sy, sWidth, sHeight, 0, 0, dWidth, dHeight);
+    ctx.restore();
+  }
+
+  // --- Photo Count Selector ---
+  // Renders the photostrip slot placeholders for the currently chosen count.
+  // Uses a 2-column grid once there are more than 4 shots so the strip
+  // doesn't get unreasonably tall.
+  function renderStripSlots() {
+    const container = document.getElementById('strip-slots');
+    container.className = 'strip-slots ' + (photoCount > 4 ? 'cols-2' : 'cols-1');
+    container.innerHTML = '';
+    for (let i = 1; i <= photoCount; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'strip-slot';
+      slot.id = `slot-${i}`;
+      slot.innerHTML = `<span style="opacity:0.3;">${i}</span>`;
+      container.appendChild(slot);
+    }
+  }
+
+  function updateSnapButtonLabel() {
+    const snapBtn = document.getElementById('btn-snap');
+    if (!snapBtn.disabled) {
+      snapBtn.innerText = photosTaken >= photoCount && photosTaken > 0
+        ? `📸 Retake ${photoCount} Photo${photoCount > 1 ? 's' : ''}`
+        : `📸 Snap ${photoCount} Photo${photoCount > 1 ? 's' : ''}`;
+    }
+  }
+
+  renderStripSlots();
+  updateSnapButtonLabel();
+
+  document.querySelectorAll('.count-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (sequenceRunning) return; // don't let the count change mid-countdown
+      document.querySelectorAll('.count-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      photoCount = parseInt(btn.dataset.count, 10);
+      photosTaken = 0;
+      renderStripSlots();
+      updateSnapButtonLabel();
+    });
+  });
+
+  // --- Frame Selector ---
+  document.querySelectorAll('.frame-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.frame-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const chosenFrame = btn.dataset.frame;
+      document.getElementById('photostrip').className = `photostrip-wrapper frame-${chosenFrame}`;
+    });
+  });
+
+  // --- Filter Selector ---
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      currentFilterClass = btn.dataset.filter;
+      canvas.className = currentFilterClass;
+    });
+  });
+
+  // --- Flower Stickers ---
+  // Tapping a flower chip drops a new sticker onto the photostrip; Pointer
+  // Events (rather than native HTML5 drag-and-drop) are used for moving it
+  // since they work identically for mouse and touch, so it's draggable on
+  // phones too. Because the sticker is a real DOM element positioned inside
+  // #photostrip, html2canvas picks it up automatically in the download.
+  let flowerIdCounter = 0;
+
+  document.querySelectorAll('.flower-chip').forEach(btn => {
+    btn.addEventListener('click', () => addFlowerSticker(btn.dataset.flower));
+  });
+
+  function addFlowerSticker(emoji) {
+    const layer = document.getElementById('decoration-layer');
+    const layerRect = layer.getBoundingClientRect();
+
+    const sticker = document.createElement('div');
+    sticker.className = 'flower-sticker';
+    sticker.dataset.id = `flower-${flowerIdCounter++}`;
+    sticker.innerHTML = `<span class="flower-emoji">${emoji}</span><button class="delete-x" type="button" aria-label="Remove flower">×</button>`;
+
+    // Drop it near the middle with a little random scatter so repeated
+    // taps of the same flower don't all stack in the exact same spot.
+    const startLeft = Math.max(0, layerRect.width / 2 - 20 + (Math.random() * 50 - 25));
+    const startTop = Math.max(0, layerRect.height / 2 - 20 + (Math.random() * 50 - 25));
+    const startRotation = Math.round(Math.random() * 30 - 15);
+    sticker.style.left = `${startLeft}px`;
+    sticker.style.top = `${startTop}px`;
+    sticker.style.transform = `rotate(${startRotation}deg)`;
+    sticker.dataset.rotation = startRotation;
+
+    layer.appendChild(sticker);
+    makeStickerDraggable(sticker);
+
+    sticker.querySelector('.delete-x').addEventListener('click', (e) => {
+      e.stopPropagation();
+      sticker.remove();
+    });
+  }
+
+  function makeStickerDraggable(sticker) {
+    let dragging = false;
+    let offsetX = 0, offsetY = 0;
+    const layer = document.getElementById('decoration-layer');
+
+    sticker.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dragging = true;
+      sticker.setPointerCapture(e.pointerId);
+      sticker.classList.add('dragging');
+      selectSticker(sticker);
+      const rect = sticker.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+    });
+
+    sticker.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const layerRect = layer.getBoundingClientRect();
+      // Let the flower drift slightly past the edges so it can sit on the
+      // border of the strip, but keep most of it in view.
+      const margin = 20;
+      let newLeft = e.clientX - layerRect.left - offsetX;
+      let newTop = e.clientY - layerRect.top - offsetY;
+      newLeft = Math.max(-margin, Math.min(newLeft, layerRect.width - 40 + margin));
+      newTop = Math.max(-margin, Math.min(newTop, layerRect.height - 40 + margin));
+      sticker.style.left = `${newLeft}px`;
+      sticker.style.top = `${newTop}px`;
+    });
+
+    const endDrag = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      sticker.classList.remove('dragging');
+      try { sticker.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+    };
+    sticker.addEventListener('pointerup', endDrag);
+    sticker.addEventListener('pointercancel', endDrag);
+  }
+
+  function selectSticker(sticker) {
+    document.querySelectorAll('.flower-sticker.selected').forEach(s => {
+      if (s !== sticker) s.classList.remove('selected');
+    });
+    sticker.classList.add('selected');
+  }
+
+  // Tapping anywhere outside a flower deselects it (hides its × button on touch devices)
+  document.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('.flower-sticker')) {
+      document.querySelectorAll('.flower-sticker.selected').forEach(s => s.classList.remove('selected'));
+    }
+  });
+
+  function clearFlowers() {
+    const layer = document.getElementById('decoration-layer');
+    if (layer) layer.innerHTML = '';
+  }
+
+  // --- Bake Filter Manually (pixel math) ---
+  // We used to rely on ctx.filter (the canvas 2D "filter" property) to bake
+  // the chosen look into each captured frame. That property is unreliable
+  // on mobile: several mobile Safari/WebView builds either ignore it
+  // silently or only partially support it, so the preview looked filtered
+  // but the downloaded strip came out unfiltered. To make this work on
+  // every device we replicate each CSS filter with our own per-pixel math
+  // (same formulas the CSS Filter Effects spec uses) instead of depending
+  // on browser support for ctx.filter.
+  function clampChannel(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+  function grayscaleStep(amount) {
+    return (r, g, b) => {
+      const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      return [r + (gray - r) * amount, g + (gray - g) * amount, b + (gray - b) * amount];
+    };
+  }
+  function sepiaStep(amount) {
+    return (r, g, b) => {
+      const sr = 0.393 * r + 0.769 * g + 0.189 * b;
+      const sg = 0.349 * r + 0.686 * g + 0.168 * b;
+      const sb = 0.272 * r + 0.534 * g + 0.131 * b;
+      return [r + (sr - r) * amount, g + (sg - g) * amount, b + (sb - b) * amount];
+    };
+  }
+  function saturateStep(s) {
+    return (r, g, b) => {
+      const nr = (0.213 + 0.787 * s) * r + (0.715 - 0.715 * s) * g + (0.072 - 0.072 * s) * b;
+      const ng = (0.213 - 0.213 * s) * r + (0.715 + 0.285 * s) * g + (0.072 - 0.072 * s) * b;
+      const nb = (0.213 - 0.213 * s) * r + (0.715 - 0.715 * s) * g + (0.072 + 0.928 * s) * b;
+      return [nr, ng, nb];
+    };
+  }
+  function contrastStep(amount) {
+    return (r, g, b) => [(r - 128) * amount + 128, (g - 128) * amount + 128, (b - 128) * amount + 128];
+  }
+  function brightnessStep(amount) {
+    return (r, g, b) => [r * amount, g * amount, b * amount];
+  }
+
+  // Mirrors the .filter-* CSS classes above, step order matches the order
+  // filters are listed in each CSS `filter:` value.
+  function getFilterSteps(filterClass) {
+    switch (filterClass) {
+      case 'filter-bw': return [grayscaleStep(1), contrastStep(1.10)];
+      case 'filter-vintage': return [sepiaStep(0.6), contrastStep(0.90), brightnessStep(1.05)];
+      case 'filter-grunge': return [contrastStep(1.20), saturateStep(0.50), sepiaStep(0.40), brightnessStep(0.90)];
+      default: return [];
+    }
+  }
+
+  // Draws sourceCanvas onto a fresh canvas and permanently applies the
+  // chosen filter to its pixels, returning the new canvas.
+  function bakeFilter(sourceCanvas, filterClass) {
+    const w = sourceCanvas.width, h = sourceCanvas.height;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = w;
+    outCanvas.height = h;
+    const outCtx = outCanvas.getContext('2d');
+    outCtx.drawImage(sourceCanvas, 0, 0);
+
+    const steps = getFilterSteps(filterClass);
+    if (steps.length === 0) return outCanvas; // filter-normal: nothing to bake
+
+    const imageData = outCtx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i], g = data[i + 1], b = data[i + 2];
+      for (const step of steps) {
+        [r, g, b] = step(r, g, b);
+      }
+      data[i] = clampChannel(r);
+      data[i + 1] = clampChannel(g);
+      data[i + 2] = clampChannel(b);
+    }
+    outCtx.putImageData(imageData, 0, 0);
+    return outCanvas;
+  }
+
+  // --- Capture Sequence ---
+  async function startSnapSequence() {
+    const snapBtn = document.getElementById('btn-snap');
+    const cdOverlay = document.getElementById('countdown');
+    snapBtn.disabled = true;
+    sequenceRunning = true;
+    photosTaken = 0;
+
+    for (let i = 1; i <= photoCount; i++) {
+        document.getElementById(`slot-${i}`).innerHTML = `<span style="opacity:0.3;">${i}</span>`;
+    }
+
+    for (let slot = 1; slot <= photoCount; slot++) {
+      cdOverlay.style.display = 'flex';
+      
+      for (let c = 3; c > 0; c--) {
+        cdOverlay.innerText = c;
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      
+      cdOverlay.innerText = '📸';
+      await new Promise(r => setTimeout(r, 150));
+      
+      cdOverlay.style.display = 'none';
+
+      // Bake the chosen filter permanently into the captured frame using
+      // our own pixel math (see bakeFilter above) so it survives download
+      // on every device, not just ones that support ctx.filter.
+      const bakedCanvas = bakeFilter(canvas, currentFilterClass);
+      const dataURL = bakedCanvas.toDataURL('image/jpeg', 0.9);
+      
+      document.getElementById(`slot-${slot}`).innerHTML = `<img src="${dataURL}">`;
+      photosTaken++;
+      
+      isSnapping = true;
+      setTimeout(() => { isSnapping = false; }, 150);
+
+      if (slot < photoCount) await new Promise(r => setTimeout(r, 2000));
+    }
+    
+    snapBtn.disabled = false;
+    sequenceRunning = false;
+    updateSnapButtonLabel();
+  }
+
+  // --- Download Strip ---
+  function downloadStrip() {
+    if (photosTaken < photoCount) {
+      showRoomWarning(`Snap all ${photoCount} photos first, then you can download the strip.`);
+      return;
+    }
+    document.getElementById('strip-title').blur();
+    document.querySelectorAll('.flower-sticker.selected').forEach(s => s.classList.remove('selected'));
+    const strip = document.getElementById('photostrip');
+    
+    html2canvas(strip, { 
+      scale: 3, 
+      backgroundColor: null,
+      useCORS: true
+    }).then(canvas => {
+      const link = document.createElement('a');
+      link.download = 'Our-Photostrip.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    });
+  }
+
+  function showRoomWarning(msg) {
+    const prevText = document.getElementById('room-pill-text').innerText;
+    const prevClass = document.getElementById('room-pill').className;
+    setRoomPill('error', msg);
+    setTimeout(() => {
+      document.getElementById('room-pill').className = prevClass;
+      document.getElementById('room-pill-text').innerText = prevText;
+    }, 2500);
+  }
+
+  // --- Cleanup: stop the camera when leaving/closing the page ---
+  function stopAllTracks() {
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+  }
+  window.addEventListener('beforeunload', stopAllTracks);
+  document.addEventListener('visibilitychange', () => {
+    // Keep the camera running when just switching tabs; only fully stop on unload.
+  });
+
+  window.addEventListener('load', initCameraAndPeer);
+</script>
+</body>
+</html>
